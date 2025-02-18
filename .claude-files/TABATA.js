@@ -1,4 +1,5 @@
-// Source: client/components/EMOM.js
+// Source: client/components/TABATA.js
+// Source: client/components/TABATA.js
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -10,12 +11,14 @@ import NumberPicker from './common/NumberPicker';
 const { width } = Dimensions.get('window');
 const CIRCLE_SIZE = width * 0.75;
 
-const EMOM = () => {
+const TABATA = () => {
   const [rounds, setRounds] = useState('');
-  const [intervalTime, setIntervalTime] = useState('');
+  const [workTime, setWorkTime] = useState('');
+  const [restTime, setRestTime] = useState('');
   const [currentRound, setCurrentRound] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  const [isResting, setIsResting] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [isPaused, setIsPaused] = useState(false);
   
@@ -25,15 +28,17 @@ const EMOM = () => {
   const [pickerConfig, setPickerConfig] = useState({
     minValue: 1,
     maxValue: 99,
-    initialValue: 10
+    initialValue: 8
   });
   
   const intervalRef = useRef(null);
+  const isPlayingSound = useRef(false);
 
+  // Validation et formatage des entrées
   const validateAndFormatInput = (value, max = 999) => {
     const numberValue = value.replace(/[^0-9]/g, '');
     const parsedValue = parseInt(numberValue);
-    if (isNaN(parsedValue) || parsedValue <= 0) return '';
+    if (isNaN(parsedValue)) return '';
     return Math.min(parsedValue, max).toString();
   };
 
@@ -41,29 +46,39 @@ const EMOM = () => {
     setRounds(validateAndFormatInput(value, 99));
   };
 
-  const handleIntervalTimeChange = (value) => {
-    setIntervalTime(validateAndFormatInput(value, 999));
+  const handleWorkTimeChange = (value) => {
+    setWorkTime(validateAndFormatInput(value, 999));
+  };
+
+  const handleRestTimeChange = (value) => {
+    setRestTime(validateAndFormatInput(value, 999));
   };
   
   // Fonction pour ouvrir le NumberPicker
   const openNumberPicker = (target) => {
     let config = {
       minValue: 1,
-      initialValue: 10,
-      maxValue: 99
+      initialValue: 8,
+      maxValue: 30
     };
     
     if (target === 'rounds') {
       config = {
         minValue: 1,
-        maxValue: 99,
-        initialValue: parseInt(rounds) || 10
+        maxValue: 30,
+        initialValue: parseInt(rounds) || 8
       };
-    } else if (target === 'interval') {
+    } else if (target === 'work') {
       config = {
-        minValue: 1,
-        maxValue: 300,
-        initialValue: parseInt(intervalTime) || 60
+        minValue: 5,
+        maxValue: 120,
+        initialValue: parseInt(workTime) || 20
+      };
+    } else if (target === 'rest') {
+      config = {
+        minValue: 5,
+        maxValue: 120,
+        initialValue: parseInt(restTime) || 10
       };
     }
     
@@ -76,45 +91,48 @@ const EMOM = () => {
   const handlePickerConfirm = (value) => {
     if (pickerTarget === 'rounds') {
       setRounds(value.toString());
-    } else if (pickerTarget === 'interval') {
-      setIntervalTime(value.toString());
+    } else if (pickerTarget === 'work') {
+      setWorkTime(value.toString());
+    } else if (pickerTarget === 'rest') {
+      setRestTime(value.toString());
     }
     setPickerVisible(false);
+  };
+
+  const startTimer = () => {
+    if (!rounds || !workTime || !restTime) {
+      Alert.alert('Attention', 'Veuillez remplir tous les champs');
+      return;
+    }
+    setIsRunning(true);
+    setCurrentRound(1);
+    setCurrentTime(parseInt(workTime));
+    setIsResting(false);
+    setCountdown(10);
+    setIsPaused(false);
+  };
+
+  const pauseTimer = () => {
+    setIsPaused(!isPaused);
+  };
+
+  const resetTimer = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRunning(false);
+    setIsPaused(false);
+    setCurrentRound(1);
+    setCurrentTime(parseInt(workTime) || 0);
+    setCountdown(10);
+    setIsResting(false);
   };
 
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
     const seconds = time % 60;
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-  };
-
-  const startTimer = () => {
-    if (!rounds || !intervalTime) {
-      Alert.alert('Attention', 'Veuillez remplir tous les champs');
-      return;
-    }
-    setIsRunning(true);
-    setCurrentRound(1);
-    setCurrentTime(parseInt(intervalTime));
-    setCountdown(10);
-    setIsPaused(false);
-  };
-
-  const resetTimer = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    setIsRunning(false);
-    setIsPaused(false);
-    setCurrentRound(1);
-    setCurrentTime(parseInt(intervalTime));
-    setCountdown(10);
-  };
-
-  const handleCirclePress = () => {
-    if (isRunning && countdown === 0) {
-      setIsPaused(!isPaused);
-    }
   };
 
   // Gestion de la navigation (focus/blur)
@@ -128,25 +146,26 @@ const EMOM = () => {
         setIsRunning(false);
         setIsPaused(false);
         setCurrentRound(1);
-        setCurrentTime(parseInt(intervalTime));
+        setCurrentTime(parseInt(workTime));
         setCountdown(10);
+        setIsResting(false);
       };
-    }, [intervalTime])
+    }, [workTime])
   );
 
   const getPhaseColor = () => {
     if (countdown > 0) return COLORS.warning;
-    return COLORS.success;
+    return isResting ? COLORS.warning : COLORS.success;
   };
 
   const getBackgroundColor = () => {
     if (countdown > 0) return COLORS.darkBlue;
-    return COLORS.darkRed;
+    return isResting ? COLORS.darkGreen : COLORS.darkRed;
   };
 
   const getCircleBackground = () => {
     if (countdown > 0) return 'rgba(255,255,255,0.1)';
-    return 'rgba(0,255,0,0.1)';
+    return isResting ? 'rgba(255,200,0,0.1)' : 'rgba(0,255,0,0.1)';
   };
 
   useEffect(() => {
@@ -161,9 +180,9 @@ const EMOM = () => {
     };
 
     if (isRunning && !isPaused) {
-      // Son pendant le compte à rebours
+      // Son pendant le compte à rebours initial
       if (countdown <= 3 && countdown > 0) {
-        playSound(SOUNDS.fiveSecondsStart);
+        handleSound(SOUNDS.fiveSecondsStart);
       }
     
       if (intervalRef.current) {
@@ -177,24 +196,33 @@ const EMOM = () => {
       } else {
         intervalRef.current = setInterval(() => {
           setCurrentTime(prev => {
-            const midPoint = Math.floor(parseInt(intervalTime) / 2);
-            // Vérification indépendante pour le point médian
+            // Son au milieu de chaque phase
+            const currentPhaseTime = isResting ? parseInt(restTime) : parseInt(workTime);
+            const midPoint = Math.floor(currentPhaseTime / 2);
             if (prev === midPoint) {
               handleSound(SOUNDS.midExercise);
             }
-            // Vérification séparée pour les 5 dernières secondes
+            
+            // Son pour les 5 dernières secondes
             if (prev === 5) {
               handleSound(SOUNDS.fiveSecondsEnd);
             }
 
-            if (prev <= 1) {
-              if (currentRound >= parseInt(rounds)) {
-                resetTimer();
-                Alert.alert('Terminé', 'Entraînement terminé !');
-                return 0;
+            if (prev <= 0) {
+              if (isResting) {
+                if (currentRound >= parseInt(rounds)) {
+                  resetTimer();
+                  Alert.alert('Terminé', 'Entraînement terminé!');
+                  return 0;
+                } else {
+                  setCurrentRound(r => r + 1);
+                  setIsResting(false);
+                  return parseInt(workTime);
+                }
+              } else {
+                setIsResting(true);
+                return parseInt(restTime);
               }
-              setCurrentRound(r => r + 1);
-              return parseInt(intervalTime);
             }
             return prev - 1;
           });
@@ -210,7 +238,7 @@ const EMOM = () => {
       }
       unloadSound().catch(console.error);
     };
-  }, [isRunning, countdown, isPaused, currentRound, rounds, intervalTime]);
+  }, [isRunning, countdown, isPaused, currentRound, rounds, workTime, restTime, isResting]);
 
   return (
     <View style={[styles.container, { backgroundColor: getBackgroundColor() }]}>
@@ -227,7 +255,7 @@ const EMOM = () => {
                     <Text style={styles.phaseText}>ROUNDS</Text>
                     <View style={[styles.circleInputContainer, { width: '100%' }]}>
                       <Text style={styles.circleInput}>
-                        {rounds || "10"}
+                        {rounds || "8"}
                       </Text>
                     </View>
                   </View>
@@ -235,19 +263,35 @@ const EMOM = () => {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.inputContainer}
-              activeOpacity={0.8}
-              onPress={() => openNumberPicker('interval')}
-            >
-              <Text style={styles.label}>INTERVALLE</Text>
-              <View style={styles.inputWrapper}>
-                <Text style={styles.input}>
-                  {intervalTime || "60"}
-                </Text>
-              </View>
-              <Text style={styles.unit}>SEC</Text>
-            </TouchableOpacity>
+            <View style={styles.rowContainer}>
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                activeOpacity={0.8}
+                onPress={() => openNumberPicker('work')}
+              >
+                <Text style={styles.label}>TRAVAIL</Text>
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.input}>
+                    {workTime || "20"}
+                  </Text>
+                </View>
+                <Text style={styles.unit}>SEC</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                activeOpacity={0.8}
+                onPress={() => openNumberPicker('rest')}
+              >
+                <Text style={styles.label}>REPOS</Text>
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.input}>
+                    {restTime || "10"}
+                  </Text>
+                </View>
+                <Text style={styles.unit}>SEC</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={styles.startButton}
@@ -258,7 +302,7 @@ const EMOM = () => {
           </View>
         ) : (
           <View style={styles.timerDisplay}>
-            <Pressable onPress={handleCirclePress}>
+            <Pressable onPress={pauseTimer}>
               <View style={[
                 styles.circle,
                 { 
@@ -268,13 +312,11 @@ const EMOM = () => {
                 isPaused && styles.circlePaused
               ]}>
                 <Text style={styles.phaseText}>
-                  {countdown > 0 ? 'PRÊT' : 'GO'}
+                  {countdown > 0 ? 'PRÊT' : (isResting ? 'REPOS' : 'GO')}
                 </Text>
-                {countdown === 0 && (
-                  <Text style={styles.seriesText}>{currentRound}/{rounds}</Text>
-                )}
+                <Text style={styles.seriesText}>{currentRound}/{rounds}</Text>
                 <Text style={styles.timeDisplay}>
-                  {countdown > 0 ? countdown : currentTime}
+                  {countdown > 0 ? countdown : formatTime(currentTime)}
                 </Text>
                 {isPaused && <Text style={styles.pausedText}>PAUSE</Text>}
               </View>
@@ -305,6 +347,7 @@ const EMOM = () => {
 };
 
 const styles = StyleSheet.create({
+  // Les styles restent identiques à ceux du fichier original
   container: {
     flex: 1,
   },
@@ -320,14 +363,8 @@ const styles = StyleSheet.create({
     gap: 40,
   },
   circleContainer: {
-    width: '100%',
+    marginBottom: 40,
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timerDisplay: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   circle: {
     width: CIRCLE_SIZE,
@@ -346,10 +383,22 @@ const styles = StyleSheet.create({
   setupCircle: {
     borderColor: 'rgba(255,255,255,0.3)',
   },
-  circleInputContainer: {
+  inputWrapper: {
+    alignItems: 'center',
     width: '100%',
+  },
+  circleInputContainer: {
+    minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  phaseText: {
+    fontSize: SIZES.fontSize.title,
+    color: '#FFFFFF',
+    marginBottom: 16,
+    fontWeight: '500',
+    letterSpacing: 3,
+    textAlign: 'center',
   },
   circleInput: {
     fontSize: 64,
@@ -360,26 +409,19 @@ const styles = StyleSheet.create({
     padding: 0,
     minWidth: 120,
   },
-  timeDisplay: {
-    fontSize: 72,
-    fontWeight: '200',
-    color: '#FFFFFF',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  seriesText: {
-    fontSize: 36,
-    color: '#FFFFFF',
-    marginBottom: 8,
-    fontWeight: '300',
-    opacity: 0.9,
-    textAlign: 'center',
+  rowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: 40,
+    gap: 20,
   },
   inputContainer: {
     alignItems: 'center',
     backgroundColor: COLORS.surfaceLight,
     padding: 16,
     borderRadius: SIZES.radius,
+    flex: 1,
     maxWidth: width * 0.4,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -428,12 +470,22 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 3,
   },
-  phaseText: {
-    fontSize: SIZES.fontSize.title,
+  timerDisplay: {
+    alignItems: 'center',
+  },
+  seriesText: {
+    fontSize: 36,
     color: '#FFFFFF',
-    marginBottom: 16,
-    fontWeight: '500',
-    letterSpacing: 3,
+    marginBottom: 8,
+    fontWeight: '300',
+    opacity: 0.9,
+    textAlign: 'center',
+  },
+  timeDisplay: {
+    fontSize: 72,
+    fontWeight: '200',
+    color: '#FFFFFF',
+    marginBottom: 8,
     textAlign: 'center',
   },
   controls: {
@@ -465,7 +517,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   circlePaused: {
-    opacity: 0.7,
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    borderColor: COLORS.warning,
+    borderWidth: 6,
+    opacity: 0.9,
     borderStyle: 'dashed',
   },
   pausedText: {
@@ -474,11 +529,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.7,
     fontWeight: '600',
-  },
-  inputWrapper: {
-    alignItems: 'center',
-    width: '100%',
-  },
+  }
 });
 
-export default EMOM;
+export default TABATA;

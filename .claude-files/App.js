@@ -1,4 +1,5 @@
 // Source: client/App.js
+// Source: client/App.js
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -17,11 +18,11 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   // Préchargez les sons au démarrage de l'application
   useEffect(() => {
-    // initializeAudio();
+    initializeAudio();
     
     // Nettoyez les sons lors de la fermeture de l'app
     return () => {
-      // cleanupSounds();
+      cleanupSounds();
     };
   }, []);
 

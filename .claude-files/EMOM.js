@@ -1,4 +1,5 @@
 // Source: client/components/EMOM.js
+// Source: client/components/EMOM.js
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';

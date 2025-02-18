@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
+// Source: client/components/TABATA.js
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, SIZES } from '../constants/theme';
+import { playSound, unloadSound } from '../utils/sound';
+import { SOUNDS } from '../constants/sounds';
+import NumberPicker from './common/NumberPicker';
 
 const { width } = Dimensions.get('window');
 const CIRCLE_SIZE = width * 0.75;
@@ -15,6 +20,18 @@ const TABATA = () => {
   const [isResting, setIsResting] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [isPaused, setIsPaused] = useState(false);
+  
+  // États pour le NumberPicker
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState(null);
+  const [pickerConfig, setPickerConfig] = useState({
+    minValue: 1,
+    maxValue: 99,
+    initialValue: 8
+  });
+  
+  const intervalRef = useRef(null);
+  const isPlayingSound = useRef(false);
 
   // Validation et formatage des entrées
   const validateAndFormatInput = (value, max = 999) => {
@@ -35,6 +52,51 @@ const TABATA = () => {
   const handleRestTimeChange = (value) => {
     setRestTime(validateAndFormatInput(value, 999));
   };
+  
+  // Fonction pour ouvrir le NumberPicker
+  const openNumberPicker = (target) => {
+    let config = {
+      minValue: 1,
+      initialValue: 8,
+      maxValue: 30
+    };
+    
+    if (target === 'rounds') {
+      config = {
+        minValue: 1,
+        maxValue: 30,
+        initialValue: parseInt(rounds) || 8
+      };
+    } else if (target === 'work') {
+      config = {
+        minValue: 5,
+        maxValue: 120,
+        initialValue: parseInt(workTime) || 20
+      };
+    } else if (target === 'rest') {
+      config = {
+        minValue: 5,
+        maxValue: 120,
+        initialValue: parseInt(restTime) || 10
+      };
+    }
+    
+    setPickerConfig(config);
+    setPickerTarget(target);
+    setPickerVisible(true);
+  };
+
+  // Gérer la confirmation du NumberPicker
+  const handlePickerConfirm = (value) => {
+    if (pickerTarget === 'rounds') {
+      setRounds(value.toString());
+    } else if (pickerTarget === 'work') {
+      setWorkTime(value.toString());
+    } else if (pickerTarget === 'rest') {
+      setRestTime(value.toString());
+    }
+    setPickerVisible(false);
+  };
 
   const startTimer = () => {
     if (!rounds || !workTime || !restTime) {
@@ -54,6 +116,10 @@ const TABATA = () => {
   };
 
   const resetTimer = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     setIsRunning(false);
     setIsPaused(false);
     setCurrentRound(1);
@@ -68,11 +134,23 @@ const TABATA = () => {
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
-  const handleTimerPress = () => {
-    if (isRunning) {
-      setIsPaused(!isPaused);
-    }
-  };
+  // Gestion de la navigation (focus/blur)
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        setIsRunning(false);
+        setIsPaused(false);
+        setCurrentRound(1);
+        setCurrentTime(parseInt(workTime));
+        setCountdown(10);
+        setIsResting(false);
+      };
+    }, [workTime])
+  );
 
   const getPhaseColor = () => {
     if (countdown > 0) return COLORS.warning;
@@ -90,20 +168,49 @@ const TABATA = () => {
   };
 
   useEffect(() => {
-    let intervalId;
+    let isComponentMounted = true;
+
+    const handleSound = (soundType) => {
+      if (isRunning && !isPaused && isComponentMounted) {
+        playSound(soundType).catch(error => {
+          console.error('Erreur lors de la lecture du son:', error);
+        });
+      }
+    };
 
     if (isRunning && !isPaused) {
+      // Son pendant le compte à rebours initial
+      if (countdown <= 3 && countdown > 0) {
+        handleSound(SOUNDS.fiveSecondsStart);
+      }
+    
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+
       if (countdown > 0) {
-        intervalId = setInterval(() => {
+        intervalRef.current = setInterval(() => {
           setCountdown(prev => prev - 1);
         }, 1000);
       } else {
-        intervalId = setInterval(() => {
+        intervalRef.current = setInterval(() => {
           setCurrentTime(prev => {
+            // Son au milieu de chaque phase
+            const currentPhaseTime = isResting ? parseInt(restTime) : parseInt(workTime);
+            const midPoint = Math.floor(currentPhaseTime / 2);
+            if (prev === midPoint) {
+              handleSound(SOUNDS.midExercise);
+            }
+            
+            // Son pour les 5 dernières secondes
+            if (prev === 5) {
+              handleSound(SOUNDS.fiveSecondsEnd);
+            }
+
             if (prev <= 0) {
               if (isResting) {
                 if (currentRound >= parseInt(rounds)) {
-                  setIsRunning(false);
+                  resetTimer();
                   Alert.alert('Terminé', 'Entraînement terminé!');
                   return 0;
                 } else {
@@ -122,7 +229,14 @@ const TABATA = () => {
       }
     }
 
-    return () => clearInterval(intervalId);
+    return () => {
+      isComponentMounted = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      unloadSound().catch(console.error);
+    };
   }, [isRunning, countdown, isPaused, currentRound, rounds, workTime, restTime, isResting]);
 
   return (
@@ -131,56 +245,51 @@ const TABATA = () => {
         {!isRunning ? (
           <View style={styles.setup}>
             <View style={styles.circleContainer}>
-              <View style={[styles.circle, styles.setupCircle]}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.phaseText}>ROUNDS</Text>
-                  <View style={[styles.circleInputContainer, { width: '100%' }]}>
-                    <TextInput
-                      style={[styles.circleInput, { textAlign: 'center' }]}
-                      keyboardType="numeric"
-                      onChangeText={handleRoundsChange}
-                      value={rounds}
-                      placeholder="8"
-                      placeholderTextColor="rgba(255,255,255,0.5)"
-                      maxLength={2}
-                    />
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => openNumberPicker('rounds')}
+              >
+                <View style={[styles.circle, styles.setupCircle]}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.phaseText}>ROUNDS</Text>
+                    <View style={[styles.circleInputContainer, { width: '100%' }]}>
+                      <Text style={styles.circleInput}>
+                        {rounds || "8"}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.rowContainer}>
-              <View style={styles.inputContainer}>
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                activeOpacity={0.8}
+                onPress={() => openNumberPicker('work')}
+              >
                 <Text style={styles.label}>TRAVAIL</Text>
                 <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    onChangeText={handleWorkTimeChange}
-                    value={workTime}
-                    placeholder="20"
-                    placeholderTextColor="rgba(255,255,255,0.5)"
-                    maxLength={3}
-                  />
+                  <Text style={styles.input}>
+                    {workTime || "20"}
+                  </Text>
                 </View>
                 <Text style={styles.unit}>SEC</Text>
-              </View>
+              </TouchableOpacity>
 
-              <View style={styles.inputContainer}>
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                activeOpacity={0.8}
+                onPress={() => openNumberPicker('rest')}
+              >
                 <Text style={styles.label}>REPOS</Text>
                 <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    onChangeText={handleRestTimeChange}
-                    value={restTime}
-                    placeholder="10"
-                    placeholderTextColor="rgba(255,255,255,0.5)"
-                    maxLength={3}
-                  />
+                  <Text style={styles.input}>
+                    {restTime || "10"}
+                  </Text>
                 </View>
                 <Text style={styles.unit}>SEC</Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity
@@ -223,11 +332,21 @@ const TABATA = () => {
           </View>
         )}
       </View>
+      
+      {/* NumberPicker Modal */}
+      <NumberPicker
+        visible={pickerVisible}
+        initialValue={pickerConfig.initialValue}
+        minValue={pickerConfig.minValue}
+        maxValue={pickerConfig.maxValue}
+        onConfirm={handlePickerConfirm}
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  // Les styles restent identiques à ceux du fichier original
   container: {
     flex: 1,
   },
@@ -397,8 +516,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   circlePaused: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)', // Fond jaune transparent
-    borderColor: COLORS.warning, // Bordure jaune
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    borderColor: COLORS.warning,
     borderWidth: 6,
     opacity: 0.9,
     borderStyle: 'dashed',
@@ -409,7 +528,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.7,
     fontWeight: '600',
-  },
+  }
 });
 
 export default TABATA;

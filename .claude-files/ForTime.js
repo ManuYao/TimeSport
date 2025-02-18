@@ -1,4 +1,5 @@
-// Source: client/components/EMOM.js
+// Source: client/components/ForTime.js
+// Source: client/components/ForTime.js
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,14 +10,16 @@ import NumberPicker from './common/NumberPicker';
 
 const { width } = Dimensions.get('window');
 const CIRCLE_SIZE = width * 0.75;
+const LONG_PRESS_DURATION = 800;
 
-const EMOM = () => {
-  const [rounds, setRounds] = useState('');
-  const [intervalTime, setIntervalTime] = useState('');
-  const [currentRound, setCurrentRound] = useState(1);
-  const [currentTime, setCurrentTime] = useState(0);
+const ForTime = () => {
+  const [series, setSeries] = useState(0);
+  const [restTime, setRestTime] = useState(0);
+  const [currentSeries, setCurrentSeries] = useState(1);
   const [isRunning, setIsRunning] = useState(false);
+  const [isResting, setIsResting] = useState(false);
   const [countdown, setCountdown] = useState(10);
+  const [currentTime, setCurrentTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   
   // États pour le NumberPicker
@@ -25,45 +28,60 @@ const EMOM = () => {
   const [pickerConfig, setPickerConfig] = useState({
     minValue: 1,
     maxValue: 99,
-    initialValue: 10
+    initialValue: 5
   });
   
   const intervalRef = useRef(null);
+  const soundTimeoutRef = useRef(null);
+  const isPlayingRef = useRef(false);
 
-  const validateAndFormatInput = (value, max = 999) => {
-    const numberValue = value.replace(/[^0-9]/g, '');
-    const parsedValue = parseInt(numberValue);
-    if (isNaN(parsedValue) || parsedValue <= 0) return '';
-    return Math.min(parsedValue, max).toString();
+  // Fonction améliorée pour gérer les sons avec un délai de sécurité
+  const handleSoundWithProtection = (soundType) => {
+    if (isRunning && !isPaused && !isPlayingRef.current) {
+      isPlayingRef.current = true;
+      
+      playSound(soundType).catch(error => {
+        console.error('Erreur lors de la lecture du son:', error);
+      });
+      
+      // Désactiver la protection après un délai pour permettre d'autres sons
+      if (soundTimeoutRef.current) {
+        clearTimeout(soundTimeoutRef.current);
+      }
+      
+      soundTimeoutRef.current = setTimeout(() => {
+        isPlayingRef.current = false;
+      }, 1000); // Délai de protection d'une seconde
+    }
   };
 
-  const handleRoundsChange = (value) => {
-    setRounds(validateAndFormatInput(value, 99));
+  const handleSeriesChange = (value) => {
+    setSeries(parseInt(value) || 0);
   };
 
-  const handleIntervalTimeChange = (value) => {
-    setIntervalTime(validateAndFormatInput(value, 999));
+  const handleRestTimeChange = (value) => {
+    setRestTime(parseInt(value) || 0);
   };
   
   // Fonction pour ouvrir le NumberPicker
   const openNumberPicker = (target) => {
     let config = {
       minValue: 1,
-      initialValue: 10,
-      maxValue: 99
+      initialValue: 5,
+      maxValue: 30
     };
     
-    if (target === 'rounds') {
+    if (target === 'series') {
       config = {
         minValue: 1,
-        maxValue: 99,
-        initialValue: parseInt(rounds) || 10
+        maxValue: 30,
+        initialValue: parseInt(series) || 5
       };
-    } else if (target === 'interval') {
+    } else if (target === 'rest') {
       config = {
-        minValue: 1,
+        minValue: 5,
         maxValue: 300,
-        initialValue: parseInt(intervalTime) || 60
+        initialValue: parseInt(restTime) || 60
       };
     }
     
@@ -74,46 +92,68 @@ const EMOM = () => {
 
   // Gérer la confirmation du NumberPicker
   const handlePickerConfirm = (value) => {
-    if (pickerTarget === 'rounds') {
-      setRounds(value.toString());
-    } else if (pickerTarget === 'interval') {
-      setIntervalTime(value.toString());
+    if (pickerTarget === 'series') {
+      setSeries(value);
+    } else if (pickerTarget === 'rest') {
+      setRestTime(value);
     }
     setPickerVisible(false);
   };
 
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = time % 60;
-    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-  };
-
   const startTimer = () => {
-    if (!rounds || !intervalTime) {
+    if (!series || !restTime) {
       Alert.alert('Attention', 'Veuillez remplir tous les champs');
       return;
     }
     setIsRunning(true);
-    setCurrentRound(1);
-    setCurrentTime(parseInt(intervalTime));
+    setCurrentSeries(1);
+    setCurrentTime(0);
     setCountdown(10);
-    setIsPaused(false);
   };
 
   const resetTimer = () => {
+    // Nettoyage des timers de son et intervalles
+    if (soundTimeoutRef.current) {
+      clearTimeout(soundTimeoutRef.current);
+      soundTimeoutRef.current = null;
+    }
+    
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
+    
+    // Réinitialisation des états
+    isPlayingRef.current = false;
     setIsRunning(false);
     setIsPaused(false);
-    setCurrentRound(1);
-    setCurrentTime(parseInt(intervalTime));
+    setCurrentSeries(1);
+    setCurrentTime(0);
     setCountdown(10);
+    setIsResting(false);
+    
+    // Libérer la ressource son
+    unloadSound().catch(error => {
+      console.error('Erreur lors de l\'arrêt du son:', error);
+    });
   };
 
   const handleCirclePress = () => {
     if (isRunning && countdown === 0) {
       setIsPaused(!isPaused);
+    }
+  };
+
+  const handleNextPhase = () => {
+    if (isRunning && countdown === 0) {
+      setIsResting(!isResting);
+      
+      if (!isResting) {
+        setCurrentTime(restTime);
+      } else {
+        setCurrentTime(0);
+        setCurrentSeries(prev => prev + 1);
+      }
     }
   };
 
@@ -125,47 +165,42 @@ const EMOM = () => {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
         }
-        setIsRunning(false);
-        setIsPaused(false);
-        setCurrentRound(1);
-        setCurrentTime(parseInt(intervalTime));
-        setCountdown(10);
+        
+        if (soundTimeoutRef.current) {
+          clearTimeout(soundTimeoutRef.current);
+          soundTimeoutRef.current = null;
+        }
+        
+        unloadSound().catch(console.error);
+        resetTimer();
       };
-    }, [intervalTime])
+    }, [])
   );
 
   const getPhaseColor = () => {
     if (countdown > 0) return COLORS.warning;
-    return COLORS.success;
+    return isResting ? COLORS.warning : COLORS.success;
   };
 
   const getBackgroundColor = () => {
     if (countdown > 0) return COLORS.darkBlue;
-    return COLORS.darkRed;
+    return isResting ? COLORS.darkGreen : COLORS.darkRed;
   };
 
   const getCircleBackground = () => {
     if (countdown > 0) return 'rgba(255,255,255,0.1)';
-    return 'rgba(0,255,0,0.1)';
+    return isResting ? 'rgba(255,200,0,0.1)' : 'rgba(0,255,0,0.1)';
   };
 
   useEffect(() => {
     let isComponentMounted = true;
 
-    const handleSound = (soundType) => {
-      if (isRunning && !isPaused && isComponentMounted) {
-        playSound(soundType).catch(error => {
-          console.error('Erreur lors de la lecture du son:', error);
-        });
-      }
-    };
-
     if (isRunning && !isPaused) {
-      // Son pendant le compte à rebours
+      // Son pendant le compte à rebours initial
       if (countdown <= 3 && countdown > 0) {
-        playSound(SOUNDS.fiveSecondsStart);
+        handleSoundWithProtection(SOUNDS.fiveSecondsStart);
       }
-    
+
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
@@ -176,41 +211,80 @@ const EMOM = () => {
         }, 1000);
       } else {
         intervalRef.current = setInterval(() => {
-          setCurrentTime(prev => {
-            const midPoint = Math.floor(parseInt(intervalTime) / 2);
-            // Vérification indépendante pour le point médian
-            if (prev === midPoint) {
-              handleSound(SOUNDS.midExercise);
-            }
-            // Vérification séparée pour les 5 dernières secondes
-            if (prev === 5) {
-              handleSound(SOUNDS.fiveSecondsEnd);
-            }
+          if (isResting) {
+            setCurrentTime(prev => {
+              // Son pour les 5 dernières secondes du repos - utilisation de if pour éviter les conflits
+              if (prev === 5) {
+                handleSoundWithProtection(SOUNDS.fiveSecondsEnd);
+              }
+              // Son à mi-repos - utilisation de if également
+              const midPoint = Math.floor(restTime / 2);
+              if (prev === midPoint && midPoint > 5) {
+                handleSoundWithProtection(SOUNDS.midExercise);
+              }
 
-            if (prev <= 1) {
-              if (currentRound >= parseInt(rounds)) {
-                resetTimer();
-                Alert.alert('Terminé', 'Entraînement terminé !');
+              if (prev <= 0) {
+                if (currentSeries >= series) {
+                  if (soundTimeoutRef.current) {
+                    clearTimeout(soundTimeoutRef.current);
+                  }
+                  
+                  // Attendre que le son termine avant de réinitialiser
+                  setTimeout(() => {
+                    if (isComponentMounted) {
+                      resetTimer();
+                      Alert.alert('Terminé', 'Entraînement terminé !');
+                    }
+                  }, 1500);
+                  return 0;
+                }
+                setIsResting(false);
+                setCurrentTime(0);
+                setCurrentSeries(prevSeries => prevSeries + 1);
                 return 0;
               }
-              setCurrentRound(r => r + 1);
-              return parseInt(intervalTime);
-            }
-            return prev - 1;
-          });
+              return prev - 1;
+            });
+          } else {
+            setCurrentTime(prev => {
+              const newTime = prev + 1;
+              // Son toutes les minutes pendant le travail
+              if (newTime > 0 && newTime % 60 === 0) {
+                handleSoundWithProtection(SOUNDS.midExercise);
+              }
+              return newTime;
+            });
+          }
         }, 1000);
       }
     }
 
     return () => {
       isComponentMounted = false;
+      
+      // Nettoyage des timers et intervalles
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      unloadSound().catch(console.error);
+      
+      if (soundTimeoutRef.current) {
+        clearTimeout(soundTimeoutRef.current);
+        soundTimeoutRef.current = null;
+      }
+      
+      // Permettre au son en cours de finir avant de le décharger
+      setTimeout(() => {
+        unloadSound().catch(console.error);
+      }, 500);
     };
-  }, [isRunning, countdown, isPaused, currentRound, rounds, intervalTime]);
+  }, [isRunning, countdown, isPaused, currentSeries, series, currentTime, isResting, restTime]);
+
+  const formatTime = (time) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = time % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: getBackgroundColor() }]}>
@@ -220,14 +294,14 @@ const EMOM = () => {
             <View style={styles.circleContainer}>
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => openNumberPicker('rounds')}
+                onPress={() => openNumberPicker('series')}
               >
                 <View style={[styles.circle, styles.setupCircle]}>
                   <View style={styles.inputWrapper}>
-                    <Text style={styles.phaseText}>ROUNDS</Text>
+                    <Text style={styles.phaseText}>SÉRIES</Text>
                     <View style={[styles.circleInputContainer, { width: '100%' }]}>
                       <Text style={styles.circleInput}>
-                        {rounds || "10"}
+                        {series || "5"}
                       </Text>
                     </View>
                   </View>
@@ -238,12 +312,12 @@ const EMOM = () => {
             <TouchableOpacity
               style={styles.inputContainer}
               activeOpacity={0.8}
-              onPress={() => openNumberPicker('interval')}
+              onPress={() => openNumberPicker('rest')}
             >
-              <Text style={styles.label}>INTERVALLE</Text>
+              <Text style={styles.label}>REPOS</Text>
               <View style={styles.inputWrapper}>
                 <Text style={styles.input}>
-                  {intervalTime || "60"}
+                  {restTime || "60"}
                 </Text>
               </View>
               <Text style={styles.unit}>SEC</Text>
@@ -268,17 +342,28 @@ const EMOM = () => {
                 isPaused && styles.circlePaused
               ]}>
                 <Text style={styles.phaseText}>
-                  {countdown > 0 ? 'PRÊT' : 'GO'}
+                  {countdown > 0 ? 'PRÊT' : (isResting ? 'REPOS' : 'GO')}
                 </Text>
                 {countdown === 0 && (
-                  <Text style={styles.seriesText}>{currentRound}/{rounds}</Text>
+                  <Text style={styles.seriesText}>{currentSeries}/{series}</Text>
                 )}
                 <Text style={styles.timeDisplay}>
-                  {countdown > 0 ? countdown : currentTime}
+                  {countdown > 0 ? countdown : formatTime(currentTime)}
                 </Text>
                 {isPaused && <Text style={styles.pausedText}>PAUSE</Text>}
               </View>
             </Pressable>
+
+            {countdown === 0 && (
+              <TouchableOpacity
+                style={[styles.phaseButton, isResting && styles.phaseButtonActive]}
+                onPress={handleNextPhase}
+              >
+                <Text style={styles.phaseButtonText}>
+                  {isResting ? 'REPRENDRE' : 'RÉCUPÉRATION'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <View style={styles.controls}>
               <TouchableOpacity
@@ -394,7 +479,7 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 32,
     fontWeight: '300',
-    color: '#FFFFFF',
+    color: COLORS.text,
     textAlign: 'center',
     height: 50,
     padding: 0,
@@ -475,10 +560,38 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     fontWeight: '600',
   },
+  phaseButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    marginTop: 30,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: COLORS.warning,
+  },
+  phaseButtonActive: {
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderColor: COLORS.success,
+  },
+  phaseButtonText: {
+    fontSize: SIZES.fontSize.body,
+    color: '#FFFFFF',
+    fontWeight: '500',
+    letterSpacing: 2,
+    opacity: 0.9,
+  },
   inputWrapper: {
     alignItems: 'center',
     width: '100%',
   },
 });
 
-export default EMOM;
+export default ForTime;

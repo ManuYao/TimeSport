@@ -1,5 +1,6 @@
-// Source: client/components/ForTime.js
-import React, { useState, useEffect, useRef } from 'react';
+// Source: client/components/AMRAP.js
+// Source: client/components/AMRAP.js
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, SIZES } from '../constants/theme';
@@ -9,17 +10,18 @@ import NumberPicker from './common/NumberPicker';
 
 const { width } = Dimensions.get('window');
 const CIRCLE_SIZE = width * 0.75;
-const LONG_PRESS_DURATION = 800;
 
-const ForTime = () => {
-  const [series, setSeries] = useState(0);
-  const [restTime, setRestTime] = useState(0);
-  const [currentSeries, setCurrentSeries] = useState(1);
+const AmrapTimer = () => {
+  const [totalDuration, setTotalDuration] = useState('');
+  const [workTime, setWorkTime] = useState('');
+  const [restTime, setRestTime] = useState('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isResting, setIsResting] = useState(false);
   const [countdown, setCountdown] = useState(10);
-  const [currentTime, setCurrentTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isInfiniteMode, setIsInfiniteMode] = useState(false);
   
   // États pour le NumberPicker
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -27,15 +29,15 @@ const ForTime = () => {
   const [pickerConfig, setPickerConfig] = useState({
     minValue: 1,
     maxValue: 99,
-    initialValue: 5
+    initialValue: 20
   });
   
   const intervalRef = useRef(null);
   const soundTimeoutRef = useRef(null);
   const isPlayingRef = useRef(false);
 
-  // Fonction améliorée pour gérer les sons avec un délai de sécurité
-  const handleSoundWithProtection = (soundType) => {
+  // Fonction pour gérer les sons avec protection
+  const handleSoundWithProtection = useCallback((soundType) => {
     if (isRunning && !isPaused && !isPlayingRef.current) {
       isPlayingRef.current = true;
       
@@ -43,74 +45,94 @@ const ForTime = () => {
         console.error('Erreur lors de la lecture du son:', error);
       });
       
-      // Désactiver la protection après un délai pour permettre d'autres sons
+      // Désactiver la protection après un délai
       if (soundTimeoutRef.current) {
         clearTimeout(soundTimeoutRef.current);
       }
       
       soundTimeoutRef.current = setTimeout(() => {
         isPlayingRef.current = false;
-      }, 1000); // Délai de protection d'une seconde
+      }, 1000);
     }
-  };
+  }, [isRunning, isPaused]);
 
-  const handleSeriesChange = (value) => {
-    setSeries(parseInt(value) || 0);
-  };
+  const validateAndFormatInput = useCallback((value, max = 999) => {
+    const numberValue = value.replace(/[^0-9]/g, '');
+    const parsedValue = parseInt(numberValue);
+    if (isNaN(parsedValue) || parsedValue <= 0) return '';
+    return Math.min(parsedValue, max).toString();
+  }, []);
 
-  const handleRestTimeChange = (value) => {
-    setRestTime(parseInt(value) || 0);
-  };
+  const handleTotalDurationChange = useCallback((value) => {
+    setTotalDuration(validateAndFormatInput(value, 999));
+  }, [validateAndFormatInput]);
+
+  const handleWorkTimeChange = useCallback((value) => {
+    setWorkTime(validateAndFormatInput(value, 999));
+  }, [validateAndFormatInput]);
+
+  const handleRestTimeChange = useCallback((value) => {
+    setRestTime(validateAndFormatInput(value, 999));
+  }, [validateAndFormatInput]);
   
   // Fonction pour ouvrir le NumberPicker
-  const openNumberPicker = (target) => {
+  const openNumberPicker = useCallback((target) => {
     let config = {
       minValue: 1,
-      initialValue: 5,
-      maxValue: 30
+      initialValue: 20,
+      maxValue: 99
     };
     
-    if (target === 'series') {
+    if (target === 'duration') {
       config = {
         minValue: 1,
-        maxValue: 30,
-        initialValue: parseInt(series) || 5
+        maxValue: 180,
+        initialValue: parseInt(totalDuration) || 20
+      };
+    } else if (target === 'work') {
+      config = {
+        minValue: 1,
+        maxValue: 180,
+        initialValue: parseInt(workTime) || 30
       };
     } else if (target === 'rest') {
       config = {
-        minValue: 5,
-        maxValue: 300,
-        initialValue: parseInt(restTime) || 60
+        minValue: 1,
+        maxValue: 120,
+        initialValue: parseInt(restTime) || 10
       };
     }
     
     setPickerConfig(config);
     setPickerTarget(target);
     setPickerVisible(true);
-  };
+  }, [totalDuration, workTime, restTime]);
 
   // Gérer la confirmation du NumberPicker
-  const handlePickerConfirm = (value) => {
-    if (pickerTarget === 'series') {
-      setSeries(value);
+  const handlePickerConfirm = useCallback((value) => {
+    if (pickerTarget === 'duration') {
+      setTotalDuration(value.toString());
+    } else if (pickerTarget === 'work') {
+      setWorkTime(value.toString());
     } else if (pickerTarget === 'rest') {
-      setRestTime(value);
+      setRestTime(value.toString());
     }
     setPickerVisible(false);
-  };
+  }, [pickerTarget]);
 
-  const startTimer = () => {
-    if (!series || !restTime) {
-      Alert.alert('Attention', 'Veuillez remplir tous les champs');
-      return;
+  const formatTime = useCallback((time) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = time % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  }, []);
+
+  const pauseTimer = useCallback(() => {
+    if (countdown === 0) {
+      setIsPaused(!isPaused);
     }
-    setIsRunning(true);
-    setCurrentSeries(1);
-    setCurrentTime(0);
-    setCountdown(10);
-  };
+  }, [countdown, isPaused]);
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     // Nettoyage des timers de son et intervalles
     if (soundTimeoutRef.current) {
       clearTimeout(soundTimeoutRef.current);
@@ -126,8 +148,8 @@ const ForTime = () => {
     isPlayingRef.current = false;
     setIsRunning(false);
     setIsPaused(false);
-    setCurrentSeries(1);
     setCurrentTime(0);
+    setElapsedTime(0);
     setCountdown(10);
     setIsResting(false);
     
@@ -135,26 +157,61 @@ const ForTime = () => {
     unloadSound().catch(error => {
       console.error('Erreur lors de l\'arrêt du son:', error);
     });
-  };
+  }, []);
 
-  const handleCirclePress = () => {
-    if (isRunning && countdown === 0) {
-      setIsPaused(!isPaused);
+  const startTimer = useCallback(() => {
+    if (isInfiniteMode) {
+      const durationValue = parseInt(totalDuration);
+      if (!durationValue || durationValue <= 0) {
+        Alert.alert('Attention', 'Veuillez entrer une durée valide');
+        return;
+      }
+    } else {
+      const workValue = parseInt(workTime);
+      const restValue = parseInt(restTime);
+      
+      if (!workValue || !restValue || workValue <= 0 || restValue <= 0) {
+        Alert.alert('Attention', 'Veuillez entrer des temps valides pour le travail et le repos');
+        return;
+      }
     }
-  };
+    
+    setIsRunning(true);
+    setCurrentTime(isInfiniteMode ? parseInt(totalDuration) * 60 : parseInt(workTime));
+    setElapsedTime(0);
+    setIsPaused(false);
+    setCountdown(10);
+    setIsResting(false);
+  }, [isInfiniteMode, totalDuration, workTime, restTime]);
 
-  const handleNextPhase = () => {
-    if (isRunning && countdown === 0) {
+  const handleNextPhase = useCallback(() => {
+    if (isRunning && countdown === 0 && !isInfiniteMode) {
       setIsResting(!isResting);
       
       if (!isResting) {
-        setCurrentTime(restTime);
+        // Démarrer le repos avec le temps complet
+        setCurrentTime(parseInt(restTime));
       } else {
-        setCurrentTime(0);
-        setCurrentSeries(prev => prev + 1);
+        // Retour au travail
+        setCurrentTime(parseInt(workTime));
       }
     }
-  };
+  }, [isRunning, countdown, isInfiniteMode, isResting, restTime, workTime]);
+
+  const getPhaseColor = useCallback(() => {
+    if (countdown > 0) return COLORS.warning;
+    return isResting ? COLORS.warning : COLORS.success;
+  }, [countdown, isResting]);
+
+  const getBackgroundColor = useCallback(() => {
+    if (countdown > 0) return COLORS.darkBlue;
+    return isResting ? COLORS.darkGreen : COLORS.darkRed;
+  }, [countdown, isResting]);
+
+  const getCircleBackground = useCallback(() => {
+    if (countdown > 0) return 'rgba(255,255,255,0.1)';
+    return isResting ? 'rgba(255,200,0,0.1)' : 'rgba(0,255,0,0.1)';
+  }, [countdown, isResting]);
 
   // Gestion de la navigation (focus/blur)
   useFocusEffect(
@@ -171,31 +228,15 @@ const ForTime = () => {
         }
         
         unloadSound().catch(console.error);
-        resetTimer();
       };
     }, [])
   );
-
-  const getPhaseColor = () => {
-    if (countdown > 0) return COLORS.warning;
-    return isResting ? COLORS.warning : COLORS.success;
-  };
-
-  const getBackgroundColor = () => {
-    if (countdown > 0) return COLORS.darkBlue;
-    return isResting ? COLORS.darkGreen : COLORS.darkRed;
-  };
-
-  const getCircleBackground = () => {
-    if (countdown > 0) return 'rgba(255,255,255,0.1)';
-    return isResting ? 'rgba(255,200,0,0.1)' : 'rgba(0,255,0,0.1)';
-  };
 
   useEffect(() => {
     let isComponentMounted = true;
 
     if (isRunning && !isPaused) {
-      // Son pendant le compte à rebours initial
+      // Son pendant le compte à rebours initial - CONSERVÉ
       if (countdown <= 3 && countdown > 0) {
         handleSoundWithProtection(SOUNDS.fiveSecondsStart);
       }
@@ -210,46 +251,52 @@ const ForTime = () => {
         }, 1000);
       } else {
         intervalRef.current = setInterval(() => {
-          if (isResting) {
-            setCurrentTime(prev => {
-              // Son pour les 5 dernières secondes du repos - utilisation de if pour éviter les conflits
-              if (prev === 5) {
-                handleSoundWithProtection(SOUNDS.fiveSecondsEnd);
-              }
-              // Son à mi-repos - utilisation de if également
-              const midPoint = Math.floor(restTime / 2);
-              if (prev === midPoint && midPoint > 5) {
-                handleSoundWithProtection(SOUNDS.midExercise);
-              }
+          setCurrentTime(prev => {
+            // Son à mi-chemin seulement (pour le travail ou le repos)
+            const currentPhaseTime = isInfiniteMode ? 
+              parseInt(totalDuration) * 60 : 
+              (isResting ? parseInt(restTime) : parseInt(workTime));
+            const midPoint = Math.floor(currentPhaseTime / 2);
+            
+            if (prev === midPoint && midPoint > 5) {
+              handleSoundWithProtection(SOUNDS.midExercise);
+            }
 
-              if (prev <= 0) {
-                if (currentSeries >= series) {
-                  if (soundTimeoutRef.current) {
-                    clearTimeout(soundTimeoutRef.current);
+            if (prev <= 1) {
+              if (isInfiniteMode) {
+                // Attendre avant de réinitialiser
+                setTimeout(() => {
+                  if (isComponentMounted) {
+                    resetTimer();
+                    Alert.alert('Terminé', 'Entraînement terminé !');
                   }
-                  
-                  // Attendre que le son termine avant de réinitialiser
-                  setTimeout(() => {
-                    if (isComponentMounted) {
-                      resetTimer();
-                      Alert.alert('Terminé', 'Entraînement terminé !');
-                    }
-                  }, 1500);
-                  return 0;
-                }
-                setIsResting(false);
-                setCurrentTime(0);
-                setCurrentSeries(prevSeries => prevSeries + 1);
+                }, 100);
                 return 0;
               }
-              return prev - 1;
-            });
-          } else {
-            setCurrentTime(prev => {
+              
+              if (isResting) {
+                setIsResting(false);
+                return parseInt(workTime);
+              } else {
+                setIsResting(true);
+                return parseInt(restTime);
+              }
+            }
+            return prev - 1;
+          });
+
+          if (!isInfiniteMode) {
+            setElapsedTime(prev => {
+              const totalDurationSecs = parseInt(totalDuration) * 60;
               const newTime = prev + 1;
-              // Son toutes les minutes pendant le travail
-              if (newTime > 0 && newTime % 60 === 0) {
-                handleSoundWithProtection(SOUNDS.midExercise);
+              if (newTime >= totalDurationSecs) {
+                setTimeout(() => {
+                  if (isComponentMounted) {
+                    resetTimer();
+                    Alert.alert('Terminé', 'Entraînement terminé !');
+                  }
+                }, 100);
+                return totalDurationSecs;
               }
               return newTime;
             });
@@ -272,35 +319,44 @@ const ForTime = () => {
         soundTimeoutRef.current = null;
       }
       
-      // Permettre au son en cours de finir avant de le décharger
-      setTimeout(() => {
-        unloadSound().catch(console.error);
-      }, 500);
+      unloadSound().catch(console.error);
     };
-  }, [isRunning, countdown, isPaused, currentSeries, series, currentTime, isResting, restTime]);
+  }, [isRunning, countdown, isPaused, isResting, workTime, restTime, isInfiniteMode, totalDuration, handleSoundWithProtection, resetTimer]);
 
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = time % 60;
-    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-  };
+  // Utiliser useMemo pour éviter de recréer des objets de style à chaque rendu
+  const dynamicStyles = useMemo(() => ({
+    container: { backgroundColor: getBackgroundColor() },
+    circle: { 
+      borderColor: getPhaseColor(),
+      backgroundColor: getCircleBackground()
+    }
+  }), [getBackgroundColor, getPhaseColor, getCircleBackground]);
 
   return (
-    <View style={[styles.container, { backgroundColor: getBackgroundColor() }]}>
+    <View style={[styles.container, dynamicStyles.container]}>
       <View style={styles.safeArea}>
         {!isRunning ? (
           <View style={styles.setup}>
+            <TouchableOpacity
+              style={[styles.modeButton, isInfiniteMode && styles.modeButtonActive]}
+              onPress={() => setIsInfiniteMode(!isInfiniteMode)}
+            >
+              <Text style={[styles.modeButtonText, isInfiniteMode && styles.modeButtonTextActive]}>
+                {isInfiniteMode ? '∞ Mode Infini' : '⏱ Mode Minuté'}
+              </Text>
+            </TouchableOpacity>
+
             <View style={styles.circleContainer}>
-              <TouchableOpacity
+              <TouchableOpacity 
                 activeOpacity={0.8}
-                onPress={() => openNumberPicker('series')}
+                onPress={() => openNumberPicker('duration')}
               >
                 <View style={[styles.circle, styles.setupCircle]}>
                   <View style={styles.inputWrapper}>
-                    <Text style={styles.phaseText}>SÉRIES</Text>
+                    <Text style={styles.phaseText}>DURÉE</Text>
                     <View style={[styles.circleInputContainer, { width: '100%' }]}>
                       <Text style={styles.circleInput}>
-                        {series || "5"}
+                        {totalDuration || "20"}
                       </Text>
                     </View>
                   </View>
@@ -308,19 +364,37 @@ const ForTime = () => {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.inputContainer}
-              activeOpacity={0.8}
-              onPress={() => openNumberPicker('rest')}
-            >
-              <Text style={styles.label}>REPOS</Text>
-              <View style={styles.inputWrapper}>
-                <Text style={styles.input}>
-                  {restTime || "60"}
-                </Text>
+            {!isInfiniteMode && (
+              <View style={styles.rowContainer}>
+                <TouchableOpacity 
+                  style={styles.inputContainer}
+                  activeOpacity={0.8}
+                  onPress={() => openNumberPicker('work')}
+                >
+                  <Text style={styles.label}>TRAVAIL</Text>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.input}>
+                      {workTime || "30"}
+                    </Text>
+                  </View>
+                  <Text style={styles.unit}>SEC</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.inputContainer}
+                  activeOpacity={0.8}
+                  onPress={() => openNumberPicker('rest')}
+                >
+                  <Text style={styles.label}>REPOS</Text>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.input}>
+                      {restTime || "10"}
+                    </Text>
+                  </View>
+                  <Text style={styles.unit}>SEC</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.unit}>SEC</Text>
-            </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={styles.startButton}
@@ -331,29 +405,28 @@ const ForTime = () => {
           </View>
         ) : (
           <View style={styles.timerDisplay}>
-            <Pressable onPress={handleCirclePress}>
+            <Pressable onPress={pauseTimer}>
               <View style={[
                 styles.circle,
-                { 
-                  borderColor: getPhaseColor(),
-                  backgroundColor: getCircleBackground()
-                },
+                dynamicStyles.circle,
                 isPaused && styles.circlePaused
               ]}>
                 <Text style={styles.phaseText}>
                   {countdown > 0 ? 'PRÊT' : (isResting ? 'REPOS' : 'GO')}
                 </Text>
-                {countdown === 0 && (
-                  <Text style={styles.seriesText}>{currentSeries}/{series}</Text>
+                {!isInfiniteMode && (
+                  <Text style={styles.timeDisplay}>
+                    {formatTime(elapsedTime)} / {formatTime(totalDuration * 60)}
+                  </Text>
                 )}
-                <Text style={styles.timeDisplay}>
+                <Text style={styles.currentTimeDisplay}>
                   {countdown > 0 ? countdown : formatTime(currentTime)}
                 </Text>
                 {isPaused && <Text style={styles.pausedText}>PAUSE</Text>}
               </View>
             </Pressable>
 
-            {countdown === 0 && (
+            {!isInfiniteMode && countdown === 0 && (
               <TouchableOpacity
                 style={[styles.phaseButton, isResting && styles.phaseButtonActive]}
                 onPress={handleNextPhase}
@@ -445,18 +518,18 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   timeDisplay: {
+    fontSize: 36,
+    fontWeight: '300',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    opacity: 0.9,
+    textAlign: 'center',
+  },
+  currentTimeDisplay: {
     fontSize: 72,
     fontWeight: '200',
     color: '#FFFFFF',
     marginBottom: 8,
-    textAlign: 'center',
-  },
-  seriesText: {
-    fontSize: 36,
-    color: '#FFFFFF',
-    marginBottom: 8,
-    fontWeight: '300',
-    opacity: 0.9,
     textAlign: 'center',
   },
   inputContainer: {
@@ -464,6 +537,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceLight,
     padding: 16,
     borderRadius: SIZES.radius,
+    flex: 1,
     maxWidth: width * 0.4,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -478,7 +552,7 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 32,
     fontWeight: '300',
-    color: COLORS.text,
+    color: '#FFFFFF',
     textAlign: 'center',
     height: 50,
     padding: 0,
@@ -559,6 +633,33 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     fontWeight: '600',
   },
+  modeButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  modeButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  modeButtonText: {
+    fontSize: SIZES.fontSize.body,
+    color: '#FFFFFF',
+    fontWeight: '500',
+    letterSpacing: 2,
+  },
+  modeButtonTextActive: {
+    color: COLORS.background,
+  },
+  rowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    width: '100%',
+  },
   phaseButton: {
     paddingVertical: 16,
     paddingHorizontal: 32,
@@ -593,4 +694,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ForTime;
+export default AmrapTimer;

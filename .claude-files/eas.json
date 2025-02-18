@@ -1,0 +1,33 @@
+// Source: client/eas.json
+{
+    "cli": {
+      "version": ">= 15.0.10",
+      "appVersionSource": "remote"
+    },
+    "build": {
+      "development": {
+        "developmentClient": true,
+        "distribution": "internal"
+      },
+      "preview": {
+        "distribution": "internal"
+      },
+      "production": {
+        "autoIncrement": true,
+        "android": {
+          "gradleCommand": ":app:bundleRelease",
+          "withoutCredentials": false
+        },
+        "env": {
+          "ENVIRONMENT": "production"
+        }
+      }
+    },
+    "submit": {
+      "production": {
+        "android": {
+          "track": "internal"
+        }
+      }
+    }
+  }
